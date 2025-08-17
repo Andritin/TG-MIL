@@ -1,6 +1,6 @@
 [app]
 title = TG-MIL
-package.name = com.Android.TG-MIL
+package.name = tgmil
 package.domain = org.kivy
 source.dir = .
 source.include_exts = py,kv,png,jpg,gif,json
@@ -10,3 +10,4 @@ orientation = portrait
 fullscreen = 0
 
 android.permissions = INTERNET
+
