@@ -1,396 +1,425 @@
-import random
+# -*- coding: utf-8 -*-
+# File: kivy-morse-edited-29.py
+# Morse code trainer with new categories and updated character table and quiz logic.
+
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
-from kivy.core.window import Window
-from kivy.graphics import Color, RoundedRectangle
-from kivy.properties import ObjectProperty, NumericProperty
 from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.core.audio import SoundLoader
 from kivy.clock import Clock
+from kivy.uix.relativelayout import RelativeLayout
+from kivy.metrics import dp, sp
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.gridlayout import GridLayout
+import random
+import time
 
-# Ustawia kolor tła okna dla lepszego wyglądu
-Window.clearcolor = (0.95, 0.95, 0.95, 1)
+# Morse code dictionary
+MORSE_CODE_DICT = {
+    'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
+    'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
+    'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
+    'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
+    'Y': '-.--', 'Z': '--..',
+    '1': '.----', '2': '..---', '3': '...--', '4': '....-', '5': '.....',
+    '6': '-....', '7': '--...', '8': '---..', '9': '----.', '0': '-----',
+    '.': '.-.-.-', ',': '--..--', '?': '..--..', "'": '.----.', '!': '-.-.--',
+    '/': '-..-.', '(': '-.--.', ')': '-.--.-', '&': '.-...', ':': '---...',
+    ';': '-.-.-.', '=': '-...-', '+': '.-.-.', '-': '-....-', '_': '..--.-',
+    '"': '.-..-.', '$': '...-..-', '@': '.--.-.'
+}
+
+# Categories for practice
+ALPHABET_CHARS = sorted(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))
+NUMBERS_CHARS = sorted([char for char in MORSE_CODE_DICT.keys() if char.isdigit()])
+PUNCTUATION_CHARS = sorted([char for char in MORSE_CODE_DICT.keys() if not char.isalnum()])
+
+# Split punctuation into two categories
+PUNCTUATION_CHARS_1 = PUNCTUATION_CHARS[:len(PUNCTUATION_CHARS) // 2]
+PUNCTUATION_CHARS_2 = PUNCTUATION_CHARS[len(PUNCTUATION_CHARS) // 2:]
+
+ALL_CHARS = ALPHABET_CHARS + NUMBERS_CHARS + PUNCTUATION_CHARS
+
+CATEGORIES = {
+    'Litery A-I': ALPHABET_CHARS[:9],
+    'Litery J-R': ALPHABET_CHARS[9:18],
+    'Litery S-Z': ALPHABET_CHARS[18:],
+    'Liczby 0-9': NUMBERS_CHARS,
+    'Interpunkcja (cz. 1)': PUNCTUATION_CHARS_1,
+    'Interpunkcja (cz. 2)': PUNCTUATION_CHARS_2,
+    'Wszystko razem': ALL_CHARS
+}
+
+# Load sound files
+try:
+    sound_dot = SoundLoader.load('dot.wav')
+    sound_dash = SoundLoader.load('dash.wav')
+    sound_correct = SoundLoader.load('correct.wav')
+    sound_wrong = SoundLoader.load('wrong.wav')
+except Exception as e:
+    print(f"Error loading sound files: {e}")
+    sound_dot = None
+    sound_dash = None
+    sound_correct = None
+    sound_wrong = None
 
 
-class RoundedButton(Button):
+class StartScreen(Screen):
     """
-    Niestandardowa klasa przycisku z zaokrąglonymi rogami.
-    Nadpisuje domyślne tło przycisku i rysuje zaokrąglony prostokąt.
+    Start screen with buttons for category selection and a button to view the full Morse code table.
     """
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # Wyłącza domyślne tło i obramowanie przycisku Kivy, aby narysować własne
-        self.background_normal = ''
-        self.background_down = ''
-        self.border = (0, 0, 0, 0)
-        self.radius = kwargs.get('radius', [20])
+        super(StartScreen, self).__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=dp(30), spacing=dp(20))
 
-        with self.canvas.before:
-            # Tworzy zaokrąglony prostokąt z kolorem tła i promieniem przycisku
-            self.rect_color = Color(*self.background_color)
-            self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=self.radius)
+        # Changed the title label text
+        title_label = Label(text='Trener alfabetu Morse\'a', font_size=sp(28))
+        layout.add_widget(title_label)
 
-        # Powiązanie pozycji i rozmiaru przycisku w celu aktualizacji pozycji i rozmiaru prostokąta
-        self.bind(pos=self.update_rect, size=self.update_rect, background_color=self.update_color)
+        for category_name in CATEGORIES.keys():
+            btn = Button(text=category_name, font_size=sp(20),
+                         on_press=lambda x, name=category_name: self.switch_to_practice(name))
+            layout.add_widget(btn)
 
-    def update_rect(self, instance, value):
-        """Aktualizuje pozycję i rozmiar zaokrąglonego prostokąta."""
-        self.rect.pos = instance.pos
-        self.rect.size = instance.size
+        # New button for the characters table
+        table_btn = Button(text='Tablica wszystkich znaków', font_size=sp(20),
+                           on_press=self.switch_to_characters_table)
+        layout.add_widget(table_btn)
 
-    def update_color(self, instance, value):
-        """Aktualizuje kolor zaokrąglonego prostokąta."""
-        self.rect_color.rgba = value
+        self.add_widget(layout)
+
+    def switch_to_practice(self, category_name):
+        self.manager.get_screen('practice').set_category(category_name)
+        self.manager.current = 'practice'
+
+    def switch_to_characters_table(self, instance):
+        self.manager.current = 'characters_table'
 
 
-class MyLayout(BoxLayout):
+class PracticeScreen(Screen):
     """
-    Główny układ aplikacji, który zawiera wyświetlanie słowa i przyciski odpowiedzi.
+    Practice screen for learning Morse code.
     """
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # Ustawia orientację układu na pionową
-        self.orientation = 'vertical'
-        self.spacing = 30  # Odstępy między widżetami
-        self.padding = 50  # Wypełnienie wokół zawartości
+        super(PracticeScreen, self).__init__(**kwargs)
+        self.category_name = None
+        self.char_to_practice = None
+        self.morse_to_input = ''
+        self.is_playing_morse = False
+        self.buttons = []
+        self.is_ready_for_next = False
 
-        # Słowa i ich tłumaczenia (poprawione zgodnie z terminologią branżową)
-        self.words = {
-            '52E': '4x4 BB Chassis 22.',
-            '56E': '6x6 BB Chassis 33.',
-            '56J': '6x6 BB Sattel 33.',
-            '58J': '6x6 BB Sattel 40.',
-            '96E': '8x8 BB Chassis 44.',
-            '4PE': '8x8 BL Chassis 44.',
-        }
-        self.word_keys = list(self.words.keys())
-        self.word_sequence = []
-        self.word_index = -1
-        self.current_word = ''
+        # New quiz state management variables
+        self.category_chars = []
+        self.shuffled_chars = []
+        self.wrong_guesses = []
+        self.current_index = 0
 
-        # Słowniki do przechowywania poprawnych i niepoprawnych odpowiedzi
-        self.correct_words = {}
-        self.incorrect_words = {}
+        self.build_ui()
 
-        # Zmienna do przechowywania skomponowanej odpowiedzi użytkownika
-        self.composed_answer = ''
+    def build_ui(self):
+        # Builds the user interface for the practice screen.
+        main_layout = RelativeLayout()
 
-        # Główny kontener na słowo i przyciski
-        self.main_container = BoxLayout(
-            orientation='vertical',
-            size_hint=(1, 1),
-            spacing=20,
-            padding=20,
-        )
-        self.add_widget(self.main_container)
+        # Counter label in the top right corner
+        self.counter_label = Label(text='0/0', font_size=sp(20), size_hint=(None, None), size=(dp(100), dp(50)),
+                                   pos_hint={'right': 0.95, 'top': 0.95})
+        main_layout.add_widget(self.counter_label)
 
-        # Rysowanie tła kontenera
-        with self.main_container.canvas.before:
-            Color(0.58, 0.65, 0.73, 1)  # Delikatny, uspokajający szaroniebieski
-            self.rect = RoundedRectangle(pos=self.main_container.pos, size=self.main_container.size, radius=[20])
+        # Character to translate section (moved higher)
+        self.label = Label(text='Wybierz kategorię, aby zacząć', font_size=sp(60),
+                           size_hint=(None, None), size=(dp(400), dp(100)), pos_hint={'center_x': 0.5, 'center_y': 0.8})
+        main_layout.add_widget(self.label)
 
-        # Etykieta do wyświetlania słowa
-        self.word_label = Label(
-            text='',
-            font_size='60sp',
-            bold=True,
-            color=(0.1, 0.1, 0.1, 1),  # Ciemnoszary tekst dla czytelności
-            size_hint_y=0.2,
-            halign='center',
-            valign='middle'
-        )
-        self.main_container.add_widget(self.word_label)
+        # New label for incorrect answer feedback
+        self.feedback_label = Label(text='', font_size=sp(40), size_hint=(None, None), size=(dp(400), dp(50)),
+                                    pos_hint={'center_x': 0.5, 'center_y': 0.7})
+        self.feedback_label.color = (1, 0, 0, 1)  # Red color for feedback
+        main_layout.add_widget(self.feedback_label)
 
-        # Kontener na pola odpowiedzi (nowe ramki)
-        self.answer_display_container = BoxLayout(
-            orientation='horizontal',
-            size_hint_y=0.2,
-            spacing=10,
-            pos_hint={'center_x': 0.5}
-        )
-        self.main_container.add_widget(self.answer_display_container)
+        # Morse code input section
+        self.morse_input = TextInput(readonly=True, multiline=False, font_size=sp(40),
+                                     size_hint=(None, None), size=(dp(250), dp(70)),
+                                     pos_hint={'center_x': 0.5, 'center_y': 0.6},
+                                     halign='center')
+        main_layout.add_widget(self.morse_input)
 
-        # Kontener na wiersze przycisków
-        self.button_rows_container = BoxLayout(
-            orientation='vertical',
-            size_hint_y=0.7,
-            spacing=10,
-        )
-        self.main_container.add_widget(self.button_rows_container)
+        # Dot and dash buttons
+        dot_dash_buttons = BoxLayout(spacing=dp(20), size_hint=(None, None), size=(dp(250), dp(100)),
+                                     pos_hint={'center_x': 0.5, 'center_y': 0.4})
+        self.dot_button = Button(text='.', on_press=self.on_dot_press, font_size=sp(40), size_hint=(1, 1))
+        self.dash_button = Button(text='-', on_press=self.on_dash_press, font_size=sp(40), size_hint=(1, 1))
+        dot_dash_buttons.add_widget(self.dot_button)
+        dot_dash_buttons.add_widget(self.dash_button)
+        main_layout.add_widget(dot_dash_buttons)
 
-        # Pierwszy wiersz przycisków (typ pojazdu)
-        self.row1 = BoxLayout(orientation='horizontal', spacing=10, padding=(80, 0))
-        vehicle_types = ['4x4', '6x6', '8x8']
-        for v_type in vehicle_types:
-            btn = RoundedButton(text=v_type, font_size='30sp', size_hint=(1, 1), background_color=(0.85, 0.9, 0.95, 1),
-                                color=(0.1, 0.1, 0.1, 1))
-            btn.bind(on_release=self.compose_answer)
-            self.row1.add_widget(btn)
-        self.button_rows_container.add_widget(self.row1)
+        # Control buttons row with Backspace and Check buttons (moved down)
+        control_buttons = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint=(None, None),
+                                    size=(dp(300), dp(70)),
+                                    pos_hint={'center_x': 0.5, 'center_y': 0.18})  # Adjusted pos_hint
+        self.backspace_button = Button(text='<', on_press=self.on_backspace_press, font_size=sp(25))
+        self.check_button = Button(text='Sprawdź', on_press=self.check_input, font_size=sp(18))
+        control_buttons.add_widget(self.backspace_button)
+        control_buttons.add_widget(self.check_button)
+        main_layout.add_widget(control_buttons)
 
-        # Drugi wiersz przycisków (seria podwozia)
-        self.row2 = BoxLayout(orientation='horizontal', spacing=10, padding=(80, 0))
-        chassis_series = ['BB', 'BL']
-        for series in chassis_series:
-            btn = RoundedButton(text=series, font_size='30sp', size_hint=(1, 1), background_color=(0.85, 0.9, 0.95, 1),
-                                color=(0.1, 0.1, 0.1, 1))
-            btn.bind(on_release=self.compose_answer)
-            self.row2.add_widget(btn)
-        self.button_rows_container.add_widget(self.row2)
+        # Play sound button, separate line for clarity
+        self.play_morse_button = Button(text='Odtwórz dźwięk', on_press=self.play_morse_sound, font_size=sp(18),
+                                        size_hint=(None, None), size=(dp(150), dp(50)),
+                                        pos_hint={'center_x': 0.5, 'center_y': 0.05})
+        main_layout.add_widget(self.play_morse_button)
 
-        # Trzeci wiersz przycisków (Chassis i Sattel) - przywrócone
-        self.row3 = BoxLayout(orientation='horizontal', spacing=10, padding=(80, 0))
-        words_to_add = ['Chassis', 'Sattel']
-        for word in words_to_add:
-            btn = RoundedButton(text=word, font_size='30sp', size_hint=(1, 1), background_color=(0.85, 0.9, 0.95, 1),
-                                color=(0.1, 0.1, 0.1, 1))
-            btn.bind(on_release=self.compose_answer)
-            self.row3.add_widget(btn)
-        self.button_rows_container.add_widget(self.row3)
+        # Button to go back to the start screen
+        self.back_button = Button(text='Powrót', on_press=self.back_to_start, font_size=sp(18),
+                                  size_hint=(None, None), size=(dp(120), dp(40)), pos_hint={'x': 0.05, 'y': 0.05})
+        main_layout.add_widget(self.back_button)
 
-        # Czwarty wiersz przycisków (tonaż)
-        self.row4 = BoxLayout(orientation='horizontal', spacing=10, padding=(80, 0))
-        tonnage_buttons = ['22.', '33.', '40.', '44.']
-        for tonnage in tonnage_buttons:
-            btn = RoundedButton(text=tonnage, font_size='30sp', size_hint=(1, 1), background_color=(0.85, 0.9, 0.95, 1),
-                                color=(0.1, 0.1, 0.1, 1))
-            btn.bind(on_release=self.compose_answer)
-            self.row4.add_widget(btn)
-        self.button_rows_container.add_widget(self.row4)
+        # Save the list of buttons for easy state management
+        self.buttons = [self.dot_button, self.dash_button, self.backspace_button, self.check_button,
+                        self.play_morse_button]
 
-        # Kontener na przyciski sterujące
-        self.control_buttons_container = BoxLayout(
-            orientation='horizontal',
-            size_hint_y=0.2,
-            spacing=20,
-            padding=(80, 0)
-        )
-        self.main_container.add_widget(self.control_buttons_container)
+        self.add_widget(main_layout)
 
-        # Przycisk "Wstecz"
-        self.backspace_button = RoundedButton(
-            text='<-',
-            font_size='30sp',
-            background_color=(0.9, 0.5, 0.4, 1),
-            color=(1, 1, 1, 1),
-            size_hint=(1, 1)
-        )
-        self.backspace_button.bind(on_release=self.backspace_answer)
-        self.control_buttons_container.add_widget(self.backspace_button)
+    def set_category(self, category_name):
+        self.category_name = category_name
+        self.category_chars = list(CATEGORIES[self.category_name])
+        self.shuffled_chars = list(self.category_chars)
+        random.shuffle(self.shuffled_chars)
+        self.wrong_guesses = []
+        self.current_index = 0
+        self.update_counter_label()
+        self.new_character()
 
-        # Przycisk "OK"
-        self.ok_button = RoundedButton(
-            text='OK',
-            font_size='30sp',
-            background_color=(0.5, 0.8, 0.5, 1),
-            color=(1, 1, 1, 1),
-            size_hint=(1, 1)
-        )
-        self.ok_button.bind(on_release=self.check_answer)
-        self.control_buttons_container.add_widget(self.ok_button)
+    def update_counter_label(self):
+        self.counter_label.text = f'{self.current_index}/{len(self.category_chars)}'
 
-        # Etykieta z informacją zwrotną
-        self.feedback_label = Label(
-            text='',
-            font_size='30sp',
-            bold=True,
-            color=(0.9, 0, 0, 1),
-            size_hint_y=0.1,
-            halign='center',
-            valign='middle'
-        )
-        self.main_container.add_widget(self.feedback_label)
+    def on_dot_press(self, instance):
+        if not self.is_ready_for_next:
+            self.morse_to_input += '.'
+            self.morse_input.text = self.morse_to_input
+            if sound_dot:
+                sound_dot.play()
 
-        # Tworzenie pojedynczej etykiety do wyświetlania odpowiedzi
-        answer_label = Label(
-            text='',
-            font_size='30sp',
-            bold=True,
-            halign='center',
-            valign='middle',
-            color=(0.1, 0.1, 0.1, 1)
-        )
-        self.answer_display_container.add_widget(answer_label)
-        self.answer_label = answer_label
+    def on_dash_press(self, instance):
+        if not self.is_ready_for_next:
+            self.morse_to_input += '-'
+            self.morse_input.text = self.morse_to_input
+            if sound_dash:
+                sound_dash.play()
 
-        # Aktualizuje grafikę, gdy rozmiar kontenera się zmienia
-        self.main_container.bind(pos=self.update_graphics, size=self.update_graphics)
+    def on_backspace_press(self, instance):
+        if not self.is_ready_for_next:
+            self.morse_to_input = self.morse_to_input[:-1]
+            self.morse_input.text = self.morse_to_input
 
-        # Rozpoczyna nową sekwencję słów
-        self.setup_new_sequence()
-
-    def update_graphics(self, instance, value):
-        """Aktualizuje pozycję i rozmiar grafiki tła."""
-        self.rect.pos = instance.pos
-        self.rect.size = instance.size
-
-    def setup_new_sequence(self):
-        """
-        Tworzy nową, losową sekwencję wszystkich słów.
-        """
-        self.word_keys = list(self.words.keys())
-        random.shuffle(self.word_keys)
-        self.word_sequence = self.word_keys
-        self.word_index = -1
-        self.next_word()
-
-    def next_word(self, *args):
-        """
-        Wyświetla następne słowo w sekwencji. Tworzy pola odpowiedzi na podstawie długości poprawnej odpowiedzi.
-        """
-        self.word_index += 1
-        if self.word_index >= len(self.word_sequence):
-            self.show_end_message()
+    def new_character(self, *args):
+        if self.current_index >= len(self.shuffled_chars):
+            self.show_summary()
             return
 
-        self.current_word = self.word_sequence[self.word_index]
-        self.word_label.text = self.current_word
-        self.composed_answer = ''
-        self.answer_label.text = ''
+        # Clears input only when moving to a new character
+        self.morse_input.text = ''
+        self.morse_to_input = ''
+        self.is_ready_for_next = False
+        self.feedback_label.text = ''  # Clear feedback label
 
-        self.feedback_label.text = ''
+        self.char_to_practice = self.shuffled_chars[self.current_index]
+        self.label.text = f'{self.char_to_practice}'
 
-        # Włącza przyciski
-        self.ok_button.disabled = False
-        self.backspace_button.disabled = False
-        self.set_buttons_state(True)
+        self.toggle_buttons_state(True)
+        self.label.color = (1, 1, 1, 1)
 
-    def compose_answer(self, instance):
-        """
-        Dodaje tekst z przycisku do skomponowanej odpowiedzi i aktualizuje pole odpowiedzi.
-        Spacja jest dodawana przed nowym segmentem, jeśli odpowiedź nie jest pusta.
-        """
-        if self.ok_button.disabled:
+    def check_input(self, instance):
+        if self.char_to_practice is None:
             return
 
-        # Dodaje spację przed dołączeniem, jeśli odpowiedź nie jest pusta
-        if self.composed_answer:
-            self.composed_answer += ' '
+        correct_morse = MORSE_CODE_DICT[self.char_to_practice]
+        if self.morse_to_input == correct_morse:
+            self.label.color = (0, 1, 0, 1)  # Green for correct
+            if sound_correct:
+                sound_correct.play()
+            self.feedback_label.text = ''  # No message for correct answer
+        else:
+            self.label.color = (1, 0, 0, 1)  # Red for wrong
+            self.feedback_label.text = f'{correct_morse}'  # Simplified feedback
+            self.wrong_guesses.append((self.char_to_practice, correct_morse))
+            if sound_wrong:
+                sound_wrong.play()
 
-        self.composed_answer += instance.text
-        self.answer_label.text = self.composed_answer
+        self.current_index += 1
+        self.update_counter_label()
 
-    def backspace_answer(self, instance):
-        """
-        Usuwa ostatnio wpisany znak lub segment z odpowiedzi.
-        Obsługuje usuwanie ostatniego segmentu, w tym poprzedzającej go spacji.
-        """
-        if not self.composed_answer:
+        self.toggle_buttons_state(False)
+        self.is_ready_for_next = True
+
+    def on_touch_down(self, touch):
+        # A touch on the screen (not on a button) moves to the next character
+        if self.is_ready_for_next:
+            # Check if the touch is on the back button to not trigger new_character
+            if self.back_button.collide_point(*touch.pos):
+                return super().on_touch_down(touch)
+            self.new_character()
+            return True
+        return super().on_touch_down(touch)
+
+    def toggle_buttons_state(self, state):
+        for btn in self.buttons:
+            btn.disabled = not state
+            if state:
+                btn.background_color = (0.2, 0.5, 0.8, 1)
+            else:
+                btn.background_color = (0.5, 0.5, 0.5, 1)
+
+    def play_morse_sound(self, instance):
+        if self.char_to_practice is None:
             return
 
-        # Znajduje ostatnią spację, aby określić ostatni segment
-        last_space_index = self.composed_answer.rfind(' ')
-        if last_space_index != -1:
-            # Usuwa ostatni segment i poprzedzającą go spację
-            self.composed_answer = self.composed_answer[:last_space_index]
-        else:
-            # Jeśli nie znaleziono spacji, czyści całą odpowiedź
-            self.composed_answer = ''
+        if self.is_playing_morse:
+            return
 
-        self.answer_label.text = self.composed_answer
+        morse_code = MORSE_CODE_DICT[self.char_to_practice]
+        self.is_playing_morse = True
 
-    def check_answer(self, instance):
-        """
-        Sprawdza, czy skomponowana odpowiedź jest poprawna i wyświetla informację zwrotną.
-        Dodano zliczanie poprawnych odpowiedzi.
-        """
-        user_answer = self.composed_answer.strip()
-        correct_answer = self.words[self.current_word]
+        def play_sequence(code, index=0):
+            if index >= len(code):
+                self.is_playing_morse = False
+                return
 
-        # Wyłącza przyciski
-        self.ok_button.disabled = True
-        self.backspace_button.disabled = True
-        self.set_buttons_state(False)
+            char = code[index]
+            if char == '.':
+                if sound_dot:
+                    sound_dot.play()
+                duration = 0.1
+            else:
+                if sound_dash:
+                    sound_dash.play()
+                duration = 0.3
 
-        if user_answer == correct_answer:
-            self.feedback_label.text = "Richtig!"
-            self.feedback_label.color = (0.2, 0.6, 0.2, 1)  # Ciemniejszy, wyraźniejszy zielony
-            # POPRAWKA: Dodajemy słowo do słownika poprawnych odpowiedzi
-            self.correct_words[self.current_word] = self.words[self.current_word]
-        else:
-            self.feedback_label.text = f"Falsch. Die richtige Antwort ist: {self.words[self.current_word]}"
-            self.feedback_label.color = (0.9, 0, 0, 1)  # Czerwony kolor
-            self.incorrect_words[self.current_word] = self.words[self.current_word]
+            Clock.schedule_once(lambda dt: play_sequence(code, index + 1), duration + 0.1)
 
-        # Planuje wyświetlenie następnego słowa po krótkiej przerwie
-        Clock.schedule_once(self.next_word, 2)
+        play_sequence(morse_code)
 
-    def set_buttons_state(self, state):
-        """Ustawia stan (włączony/wyłączony) dla wszystkich przycisków do komponowania odpowiedzi."""
-        for child in self.row1.children:
-            child.disabled = not state
-        for child in self.row2.children:
-            child.disabled = not state
-        for child in self.row3.children:
-            child.disabled = not state
-        for child in self.row4.children:
-            child.disabled = not state
+    def show_summary(self):
+        correct_count = len(self.category_chars) - len(self.wrong_guesses)
+        total_count = len(self.category_chars)
 
-    def show_end_message(self, *args):
-        """
-        Wyświetla końcowy komunikat i podsumowanie wyników.
-        """
-        # Ukrywa główny kontener
-        self.clear_widgets()
+        self.manager.get_screen('summary').update_summary(correct_count, total_count, self.wrong_guesses)
+        self.manager.current = 'summary'
 
-        # Oblicza wyniki
-        total_questions = len(self.correct_words) + len(self.incorrect_words)
-        correct_count = len(self.correct_words)
-
-        # Oblicza procent, jeśli były jakieś pytania
-        if total_questions > 0:
-            percentage = (correct_count / total_questions) * 100
-        else:
-            percentage = 0
-
-        # Przygotowuje tekst podsumowania
-        summary_text = "Programm beendet!\n\n"
-        summary_text += f"Ihr Ergebnis: {correct_count} / {total_questions} richtige Antworten.\n"
-        summary_text += f"Prozentsatz: {percentage:.2f}%\n\n"
-
-        if self.incorrect_words:
-            summary_text += "Wörter, die wiederholt werden müssen:\n"
-            for pl, en in self.incorrect_words.items():
-                summary_text += f"    - {pl}: {en}\n"
-        else:
-            summary_text += "Herzlichen Glückwunsch! Alle Antworten waren richtig."
-
-        # Dodaje etykietę z końcowym komunikatem
-        end_label = Label(
-            text=summary_text,
-            font_size='30sp',
-            color=(0, 0, 0, 1),
-            size_hint=(1, 1),
-            halign='center',
-            valign='middle'
-        )
-        self.add_widget(end_label)
-
-        # Dodaje przycisk wyjścia
-        exit_button = RoundedButton(
-            text='Beenden',
-            font_size='30sp',
-            background_color=(0.5, 0.5, 0.5, 1),
-            size_hint=(0.3, 0.1),
-            pos_hint={'center_x': 0.5, 'y': 0.1}
-        )
-        exit_button.bind(on_release=lambda x: App.get_running_app().stop())
-        self.add_widget(exit_button)
+    def back_to_start(self, instance):
+        self.manager.current = 'start'
 
 
-class SampleApp(App):
+class SummaryScreen(Screen):
     """
-    Główna klasa aplikacji.
+    Quiz summary screen.
     """
 
+    def __init__(self, **kwargs):
+        super(SummaryScreen, self).__init__(**kwargs)
+        self.layout = BoxLayout(orientation='vertical', padding=dp(30), spacing=dp(10))
+        self.add_widget(self.layout)
+
+        self.title_label = Label(text='Podsumowanie', font_size=sp(28))
+        self.summary_label = Label(text='', font_size=sp(22), halign='center')
+        self.wrong_answers_title = Label(text='Błędne odpowiedzi:', font_size=sp(18), bold=True,
+                                         pos_hint={'center_x': 0.5, 'y': 0.6})  # Moved up
+        # We use a box layout with padding to create a left-aligned effect within the centered layout
+        self.wrong_list_container = BoxLayout(padding=[dp(50), 0, 0, 0])
+        self.wrong_list_layout = BoxLayout(orientation='vertical', spacing=dp(25), size_hint_y=None, size_hint_x=1)
+        self.wrong_list_layout.bind(minimum_height=self.wrong_list_layout.setter('height'))
+        self.wrong_list_container.add_widget(self.wrong_list_layout)
+
+        self.layout.add_widget(self.title_label)
+        self.layout.add_widget(self.summary_label)
+        self.layout.add_widget(self.wrong_answers_title)
+        self.layout.add_widget(self.wrong_list_container)
+
+        self.restart_button = Button(text='Powrót do menu głównego', font_size=sp(18), on_press=self.go_back)
+        self.layout.add_widget(self.restart_button)
+
+    def update_summary(self, correct, total, wrong_list):
+        percentage = (correct / total) * 100 if total > 0 else 0
+        self.summary_label.text = f'Poprawne odpowiedzi: {correct}/{total}\nWynik: {percentage:.2f}%'
+
+        self.wrong_list_layout.clear_widgets()
+        if wrong_list:
+            for char, morse in wrong_list:
+                label = Label(text=f'{char}: {morse}', font_size=sp(24), halign='left', valign='middle')
+                self.wrong_list_layout.add_widget(label)
+        else:
+            label = Label(text='Brak błędnych odpowiedzi. Gratulacje!', font_size=sp(18), halign='center')
+            self.wrong_list_layout.add_widget(label)
+
+    def go_back(self, instance):
+        # This will return to the start screen, as requested.
+        self.manager.current = 'start'
+
+
+class AllCharactersScreen(Screen):
+    """
+    A screen to display a table of all Morse code characters in a three-column layout.
+    """
+
+    def __init__(self, **kwargs):
+        super(AllCharactersScreen, self).__init__(**kwargs)
+        main_layout = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(10))
+
+        title = Label(text='Tablica znaków Morse\'a', font_size=sp(28), size_hint_y=None, height=dp(50))
+        main_layout.add_widget(title)
+
+        scroll_view = ScrollView(size_hint=(1, 1))
+        # Use a GridLayout with 3 columns to create the three-column layout
+        # Spacing reduced for a more compact view
+        grid_layout = GridLayout(cols=3, spacing=dp(5), size_hint_y=None, padding=dp(10))
+        grid_layout.bind(minimum_height=grid_layout.setter('height'))
+
+        # Separate and sort characters and other symbols
+        all_chars_sorted = sorted(MORSE_CODE_DICT.keys())
+        letter_items = [(char, MORSE_CODE_DICT[char]) for char in all_chars_sorted if char.isalpha()]
+        other_items = [(char, MORSE_CODE_DICT[char]) for char in all_chars_sorted if not char.isalpha()]
+        sorted_items = letter_items + other_items
+
+        # Add all characters to the grid
+        for char, morse in sorted_items:
+            # Use a horizontal BoxLayout to keep the character and Morse code on the same line
+            char_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40), padding=[dp(2), 0])
+            char_label = Label(text=char, font_size=sp(20), bold=True, size_hint_x=0.2, halign='left')
+            morse_label = Label(text=morse, font_size=sp(18), size_hint_x=0.8, halign='left')
+
+            char_box.add_widget(char_label)
+            char_box.add_widget(morse_label)
+
+            grid_layout.add_widget(char_box)
+
+        scroll_view.add_widget(grid_layout)
+        main_layout.add_widget(scroll_view)
+
+        back_button = Button(text='Powrót', size_hint_y=None, height=dp(50), on_press=self.go_back)
+        main_layout.add_widget(back_button)
+
+        self.add_widget(main_layout)
+
+    def go_back(self, instance):
+        # This will return to the start screen, as requested.
+        self.manager.current = 'start'
+
+
+class MorseApp(App):
     def build(self):
-        """
-        Metoda build zwraca główny widżet aplikacji.
-        """
-        return MyLayout()
+        sm = ScreenManager()
+        sm.add_widget(StartScreen(name='start'))
+        sm.add_widget(PracticeScreen(name='practice'))
+        sm.add_widget(SummaryScreen(name='summary'))
+        sm.add_widget(AllCharactersScreen(name='characters_table'))
+
+        return sm
 
 
-if __name__ == "__main__":
-    SampleApp().run()
+if __name__ == '__main__':
+    MorseApp().run()
